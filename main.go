@@ -1,78 +1,109 @@
 package main
 
 import (
-	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync"
-	"time"
+	"log"
+
+	"github.com/streadway/amqp"
 )
 
-const (
-	baseURL            = "http://localhost:8080/pageLoad"
-	concurrentRequests = 100 // Change this to configure the number of concurrent requests
-)
-
-type RequestPayload struct {
-	TransactionName   string   `json:"transaction_name"`
-	TransactionParams []string `json:"transaction_params"`
-}
-
-func makeRequest(payload RequestPayload, wg *sync.WaitGroup, id int) {
-	defer wg.Done() // Notify when the goroutine completes
-
-	// Marshal payload into JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Printf("Goroutine %d: Failed to marshal payload: %v\n", id, err)
-		return
-	}
-
-	// Create HTTP POST request
-	req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("Goroutine %d: Failed to create request: %v\n", id, err)
-		return
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-
-	// Send the request
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Goroutine %d: Request failed: %v\n", id, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Log the response status
-	fmt.Printf("Goroutine %d: Response status: %s\n", id, resp.Status)
+type Message struct {
+	Pattern           string   `json:"pattern"`
+	EnrollmentID      string   `json:"enrollmentId"`
+	ChannelName       string   `json:"channelName"`
+	ChainCodeName     string   `json:"chainCodeName"`
+	TransactionName   string   `json:"transactionName"`
+	TransactionParams []string `json:"transactionParams"`
+	ID                string   `json:"id"`
 }
 
 func main() {
-	// Define the payload
-	// payload := RequestPayload{
-	// 	TransactionName:   "AddPoints",
-	// 	TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
+	// Connect to RabbitMQ
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	if err != nil {
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+	}
+	defer conn.Close()
+
+	// Create a channel
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Fatalf("Failed to open a channel: %v", err)
+	}
+	defer ch.Close()
+
+	// Declare a queue
+	queueName := "submit-transaction"
+	// _, err = ch.QueueDeclare(
+	// 	queueName, // Name of the queue
+	// 	true,      // Durable
+	// 	false,     // Delete when unused
+	// 	false,     // Exclusive
+	// 	false,     // No-wait
+	// 	nil,       // Arguments
+	// )
+	// if err != nil {
+	// 	log.Fatalf("Failed to declare a queue: %v", err)
 	// }
-	payload := RequestPayload{
-		TransactionName:   "GetPoints",
-		TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a"},
+	for i := 0; i < 1000; i++ {
+		id, err := generateHexString(22)
+		if err != nil {
+			log.Fatalf("Failed to generate random ID: %v", err)
+		}
+		// Create a JSON message
+		message := Message{
+			Pattern:           "'process_transaction'",
+			EnrollmentID:      "b0f04e1e701011bc117605a1d979c5cc8e312d3a",
+			ChannelName:       "kalp",
+			ChainCodeName:     "rpccu",
+			TransactionName:   "AddPoints",
+			TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
+			ID:                id,
+		}
+
+		// Convert the message to JSON
+		messageBody, err := json.Marshal(message)
+		if err != nil {
+			log.Fatalf("Failed to marshal message to JSON: %v", err)
+		}
+
+		// Publish the JSON message
+		err = ch.Publish(
+			"",        // Exchange
+			queueName, // Routing key (queue name)
+			false,     // Mandatory
+			false,     // Immediate
+			amqp.Publishing{
+				ContentType: "application/json", // Specify JSON content type
+				Body:        messageBody,
+			},
+		)
+		if err != nil {
+			log.Fatalf("Failed to publish a message: %v", err)
+		}
 	}
 
-	var wg sync.WaitGroup
+	log.Printf("JSON message sent to queue %s", queueName)
+}
 
-	// Start concurrent requests
-	for i := 0; i < concurrentRequests; i++ {
-		wg.Add(1)
-		go makeRequest(payload, &wg, i+1)
+func generateHexString(length int) (string, error) {
+	if length%2 != 0 {
+		return "", fmt.Errorf("length must be even to represent bytes as hexadecimal")
 	}
 
-	// Wait for all goroutines to complete
-	wg.Wait()
+	// Calculate the number of bytes needed
+	byteLength := length / 2
+	bytes := make([]byte, byteLength)
 
-	fmt.Println("All requests completed.")
+	// Fill the byte slice with random data
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+
+	// Encode the bytes to hexadecimal
+	return hex.EncodeToString(bytes), nil
 }
