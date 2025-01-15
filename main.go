@@ -1,78 +1,72 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"net/http"
-	"sync"
-	"time"
 )
 
 const (
-	baseURL            = "http://localhost:8080/pageLoad"
-	concurrentRequests = 100 // Change this to configure the number of concurrent requests
+	SPECIAL_CHARACTERS    = "!@#$%^&*+-="
+	UPPER_CASE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	LOWER_CASE_CHARACTERS = "abcdefghijklmnopqrstuvwxyz"
+	NUMBERS               = "0123456789"
 )
 
-type RequestPayload struct {
-	TransactionName   string   `json:"transaction_name"`
-	TransactionParams []string `json:"transaction_params"`
+func bufferToHex(buffer []byte) string {
+	str := ""
+	for i := 0; i < len(buffer); i++ {
+		str += fmt.Sprintf("%02x", buffer[i])
+		// fmt.Println("b is", buffer[i])
+	}
+	return str
 }
 
-func makeRequest(payload RequestPayload, wg *sync.WaitGroup, id int) {
-	defer wg.Done() // Notify when the goroutine completes
+func getCharFromHash(hash string, index int, allCharacters string) byte {
+	start := index * 2
+	end := start + 2
+	if end > len(hash) {
+		end = len(hash)
+	}
+	slice := hash[start:end]
+	num, err := hex.DecodeString(slice)
+	if err != nil || len(num) == 0 {
+		return ' '
+	}
+	charIndex := int(num[0]) % len(allCharacters)
+	return allCharacters[charIndex]
+}
 
-	// Marshal payload into JSON
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Printf("Goroutine %d: Failed to marshal payload: %v\n", id, err)
-		return
+func getSecret(enrollmentID string) (string, error) {
+	// Hash the enrollmentID using SHA-256
+	enrollmentBytes := []byte(enrollmentID)
+	hash := sha256.Sum256(enrollmentBytes)
+	hashString := bufferToHex(hash[:])
+
+	// Ensure at least one character from each set is included
+	uniqueString := ""
+	uniqueString += string(UPPER_CASE_CHARACTERS[int(hash[0])%len(UPPER_CASE_CHARACTERS)])
+	uniqueString += string(LOWER_CASE_CHARACTERS[int(hash[1])%len(LOWER_CASE_CHARACTERS)])
+	uniqueString += string(SPECIAL_CHARACTERS[int(hash[2])%len(SPECIAL_CHARACTERS)])
+	uniqueString += string(NUMBERS[int(hash[3])%len(NUMBERS)])
+
+	// Fill the rest of the string with characters from the hash
+	allCharacters := UPPER_CASE_CHARACTERS + LOWER_CASE_CHARACTERS + SPECIAL_CHARACTERS + NUMBERS
+	for i := 4; i < 16; i++ {
+		uniqueString += string(getCharFromHash(hashString, i, allCharacters))
 	}
 
-	// Create HTTP POST request
-	req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("Goroutine %d: Failed to create request: %v\n", id, err)
-		return
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-
-	// Send the request
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Goroutine %d: Request failed: %v\n", id, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Log the response status
-	fmt.Printf("Goroutine %d: Response status: %s\n", id, resp.Status)
+	return uniqueString, nil
 }
 
 func main() {
-	// Define the payload
-	// payload := RequestPayload{
-	// 	TransactionName:   "AddPoints",
-	// 	TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
-	// }
-	payload := RequestPayload{
-		TransactionName:   "GetPoints",
-		TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a"},
+	enrollmentID := "5d7ba51aa50c181a91530c2c8c5e5256404d7fa4"
+	secret, err := getSecret(enrollmentID)
+	if err != nil {
+		fmt.Printf("Error generating secret: %v\n", err)
+		return
 	}
+	fmt.Printf("Generated Secret: %s\n", secret)
 
-	var wg sync.WaitGroup
-
-	// Start concurrent requests
-	for i := 0; i < concurrentRequests; i++ {
-		wg.Add(1)
-		go makeRequest(payload, &wg, i+1)
-	}
-
-	// Wait for all goroutines to complete
-	wg.Wait()
-
-	fmt.Println("All requests completed.")
+	// fmt.Println(bufferToHex([]byte{0x12, 0x34, 0xb}))
 }
