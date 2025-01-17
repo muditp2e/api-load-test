@@ -11,13 +11,15 @@ import (
 )
 
 type Message struct {
-	Pattern           string   `json:"pattern"`
-	EnrollmentID      string   `json:"enrollmentId"`
-	ChannelName       string   `json:"channelName"`
-	ChainCodeName     string   `json:"chainCodeName"`
-	TransactionName   string   `json:"transactionName"`
-	TransactionParams []string `json:"transactionParams"`
-	ID                string   `json:"id"`
+	Pattern string `json:"pattern"`
+	Data    struct {
+		EnrollmentID      string   `json:"enrollmentID"`
+		ChannelName       string   `json:"channelName"`
+		ChainCodeName     string   `json:"chainCodeName"`
+		TransactionName   string   `json:"transactionName"`
+		TransactionParams []string `json:"transactionParams"`
+	} `json:"data"`
+	ID string `json:"id"`
 }
 
 func main() {
@@ -55,13 +57,21 @@ func main() {
 		}
 		// Create a JSON message
 		message := Message{
-			Pattern:           "'process_transaction'",
-			EnrollmentID:      "b0f04e1e701011bc117605a1d979c5cc8e312d3a",
-			ChannelName:       "kalp",
-			ChainCodeName:     "rpccu",
-			TransactionName:   "AddPoints",
-			TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
-			ID:                id,
+			Pattern: "'process_transaction'",
+			Data: struct {
+				EnrollmentID      string   `json:"enrollmentID"`
+				ChannelName       string   `json:"channelName"`
+				ChainCodeName     string   `json:"chainCodeName"`
+				TransactionName   string   `json:"transactionName"`
+				TransactionParams []string `json:"transactionParams"`
+			}{
+				EnrollmentID:      "b0f04e1e701011bc117605a1d979c5cc8e312d3a",
+				ChannelName:       "kalp",
+				ChainCodeName:     "rpccu",
+				TransactionName:   "AddPoints",
+				TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
+			},
+			ID: id,
 		}
 
 		// Convert the message to JSON
