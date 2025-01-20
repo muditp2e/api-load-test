@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,13 +12,16 @@ import (
 )
 
 const (
-	baseURL            = "http://localhost:8080/pageLoad"
-	concurrentRequests = 100 // Change this to configure the number of concurrent requests
+	baseURL            = "https://alpha-wallet-api.kalp.studio/wallet/sign-kalp-transaction-for-test"
+	concurrentRequests = 10 // Change this to configure the number of concurrent requests
 )
 
 type RequestPayload struct {
-	TransactionName   string   `json:"transaction_name"`
-	TransactionParams []string `json:"transaction_params"`
+	EnrollmentID      string   `json:"enrollmentID"`
+	ChannelName       string   `json:"channelName"`
+	ChainCodeName     string   `json:"chainCodeName"`
+	TransactionName   string   `json:"transactionName"`
+	TransactionParams []string `json:"transactionParams"`
 }
 
 func makeRequest(payload RequestPayload, wg *sync.WaitGroup, id int) {
@@ -58,9 +63,17 @@ func main() {
 	// 	TransactionName:   "AddPoints",
 	// 	TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
 	// }
+	// id, err := generateHexString(22)
+	// if err != nil {
+	// 	log.Fatalf("Failed to generate random ID: %v", err)
+	// }
+	// Create a JSON message
 	payload := RequestPayload{
-		TransactionName:   "GetPoints",
-		TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a"},
+		EnrollmentID:      "b0f04e1e701011bc117605a1d979c5cc8e312d3a",
+		ChannelName:       "kalp",
+		ChainCodeName:     "rpccu",
+		TransactionName:   "AddPoints",
+		TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
 	}
 
 	var wg sync.WaitGroup
@@ -75,4 +88,23 @@ func main() {
 	wg.Wait()
 
 	fmt.Println("All requests completed.")
+}
+
+func generateHexString(length int) (string, error) {
+	if length%2 != 0 {
+		return "", fmt.Errorf("length must be even to represent bytes as hexadecimal")
+	}
+
+	// Calculate the number of bytes needed
+	byteLength := length / 2
+	bytes := make([]byte, byteLength)
+
+	// Fill the byte slice with random data
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+
+	// Encode the bytes to hexadecimal
+	return hex.EncodeToString(bytes), nil
 }
