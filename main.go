@@ -1,119 +1,156 @@
+// main.go
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"time"
 
-	"github.com/streadway/amqp"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/secure"
+	"github.com/gin-gonic/gin"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
-type Message struct {
-	Pattern string `json:"pattern"`
-	Data    struct {
-		EnrollmentID      string   `json:"enrollmentID"`
-		ChannelName       string   `json:"channelName"`
-		ChainCodeName     string   `json:"chainCodeName"`
-		TransactionName   string   `json:"transactionName"`
-		TransactionParams []string `json:"transactionParams"`
-	} `json:"data"`
-	ID string `json:"id"`
+type BridgeStatusResponse struct {
+	TxID      string `json:"txId"`
+	Status    string `json:"status"`
+	UpdatedAt int64  `json:"updatedAt"`
 }
+
+var db *sql.DB
 
 func main() {
-	// Connect to RabbitMQ
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	var err error
+	// Connect to MySQL
+	dsn := "root:password123@tcp(localhost:3306)/bridge"
+	db, err = sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		log.Fatalf("Failed to connect to MySQL: %v", err)
 	}
-	defer conn.Close()
 
-	// Create a channel
-	ch, err := conn.Channel()
+	defer db.Close()
+
+	router := gin.New()
+	router.Use(gin.Logger())
+	allowedOrigins := []string{"*"}
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:  allowedOrigins,
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Content-Type", "Authorization"},
+		ExposeHeaders: []string{"Content-Length", "Access-Control-Allow-Origin"},
+	}))
+	router.Use(secure.New(secure.Config{
+		SSLRedirect:           false,
+		IsDevelopment:         false,
+		STSSeconds:            315360000,
+		STSIncludeSubdomains:  false,
+		FrameDeny:             false,
+		ContentTypeNosniff:    true,
+		BrowserXssFilter:      true,
+		ContentSecurityPolicy: "default-src 'self'",
+		// IENoOpen:              true,
+		SSLProxyHeaders: map[string]string{"X-Forwarded-Proto": "https"},
+	}))
+
+	router.GET("/tx/status", handleGetTxStatus)
+	router.GET("/tx/pending", handlePendingTxs)
+	router.POST("/tx/add", handleInsertTx)
+	router.POST("/tx/update", handleUpdateTxStatus)
+
+	err = router.Run(":6500")
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %v", err)
+		fmt.Printf("Error starting the server: %v", err)
+		os.Exit(1)
 	}
-	defer ch.Close()
-
-	// Declare a queue
-	queueName := "submit-transaction"
-	// _, err = ch.QueueDeclare(
-	// 	queueName, // Name of the queue
-	// 	true,      // Durable
-	// 	false,     // Delete when unused
-	// 	false,     // Exclusive
-	// 	false,     // No-wait
-	// 	nil,       // Arguments
-	// )
-	// if err != nil {
-	// 	log.Fatalf("Failed to declare a queue: %v", err)
-	// }
-	for i := 0; i < 1000; i++ {
-		id, err := generateHexString(22)
-		if err != nil {
-			log.Fatalf("Failed to generate random ID: %v", err)
-		}
-		// Create a JSON message
-		message := Message{
-			Pattern: "'process_transaction'",
-			Data: struct {
-				EnrollmentID      string   `json:"enrollmentID"`
-				ChannelName       string   `json:"channelName"`
-				ChainCodeName     string   `json:"chainCodeName"`
-				TransactionName   string   `json:"transactionName"`
-				TransactionParams []string `json:"transactionParams"`
-			}{
-				EnrollmentID:      "b0f04e1e701011bc117605a1d979c5cc8e312d3a",
-				ChannelName:       "kalp",
-				ChainCodeName:     "rpccu",
-				TransactionName:   "AddPoints",
-				TransactionParams: []string{"b0f04e1e701011bc117605a1d979c5cc8e312d3a", "1"},
-			},
-			ID: id,
-		}
-
-		// Convert the message to JSON
-		messageBody, err := json.Marshal(message)
-		if err != nil {
-			log.Fatalf("Failed to marshal message to JSON: %v", err)
-		}
-
-		// Publish the JSON message
-		err = ch.Publish(
-			"",        // Exchange
-			queueName, // Routing key (queue name)
-			false,     // Mandatory
-			false,     // Immediate
-			amqp.Publishing{
-				ContentType: "application/json", // Specify JSON content type
-				Body:        messageBody,
-			},
-		)
-		if err != nil {
-			log.Fatalf("Failed to publish a message: %v", err)
-		}
-	}
-
-	log.Printf("JSON message sent to queue %s", queueName)
 }
 
-func generateHexString(length int) (string, error) {
-	if length%2 != 0 {
-		return "", fmt.Errorf("length must be even to represent bytes as hexadecimal")
-	}
-
-	// Calculate the number of bytes needed
-	byteLength := length / 2
-	bytes := make([]byte, byteLength)
-
-	// Fill the byte slice with random data
-	_, err := rand.Read(bytes)
+// Fetch all non-TxSuccess rows
+func handlePendingTxs(c *gin.Context) {
+	rows, err := db.Query(`SELECT txID, status FROM bridge_token WHERE status != 'TxSuccess' and status != 'TxFailed'`)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var results []BridgeStatusResponse
+	for rows.Next() {
+		var tx BridgeStatusResponse
+		if err := rows.Scan(&tx.TxID, &tx.Status); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		results = append(results, tx)
 	}
 
-	// Encode the bytes to hexadecimal
-	return hex.EncodeToString(bytes), nil
+	c.JSON(http.StatusOK, results)
+}
+
+// Insert new transaction
+func handleInsertTx(c *gin.Context) {
+	var req BridgeStatusResponse
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	_, err := db.Exec(
+		`INSERT INTO bridge_token (txID, status, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`,
+		req.TxID, req.Status,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Insert failed: " + err.Error()})
+		return
+	}
+
+	c.Status(http.StatusCreated)
+}
+
+// Get single transaction status
+func handleGetTxStatus(c *gin.Context) {
+	txID := c.Query("txId")
+	if txID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing txId parameter"})
+		return
+	}
+
+	var status string
+	err := db.QueryRow("SELECT status FROM bridge_token WHERE txID = ?", txID).Scan(&status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, BridgeStatusResponse{
+		TxID:   txID,
+		Status: status,
+	})
+}
+
+// Update transaction status
+func handleUpdateTxStatus(c *gin.Context) {
+	var req BridgeStatusResponse
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+	t := time.UnixMilli(req.UpdatedAt)
+
+	_, err := db.Exec(`UPDATE bridge_token SET status = ?, updated_at = ? WHERE txID = ?`, req.Status, t, req.TxID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed: " + err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
 }
