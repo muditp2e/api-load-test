@@ -1,156 +1,75 @@
-// main.go
 package main
 
 import (
-	"database/sql"
+	"bytes"
+	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
+	"sync"
 	"time"
-
-	"github.com/gin-contrib/cors"
-	"github.com/gin-contrib/secure"
-	"github.com/gin-gonic/gin"
-
-	_ "github.com/go-sql-driver/mysql"
 )
 
-type BridgeStatusResponse struct {
-	TxID      string `json:"txId"`
-	Status    string `json:"status"`
-	UpdatedAt int64  `json:"updatedAt"`
+const (
+	username           = "admin"
+	password           = "admin"
+	url                = "https://fa68-3-108-214-79.ngrok-free.app/api/v1/dags/gini_notification_final/dagRuns"
+	concurrentRequests = 100
+)
+
+func generatePayload(i int) []byte {
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	dagRunID := fmt.Sprintf("manual__%s_%d", timestamp, i)
+
+	json := fmt.Sprintf(`{
+		"dag_run_id": "%s",
+		"conf": {
+        "eventName": "Transfer",
+        "transactionId": "dab0766184b92c6c5de647bfb754ec023ebaffd7564dddd5d2a7f6357a9f7a52",
+        "block_number": 912,
+        "payload": {
+            "from": "e3ac4b65e0bc0bfff3a88209a16cf06918c36daa",
+            "to": "f8763ef1e28e3f36b86b5f7988232f88d28a6fcd",
+            "value": "2000000000000000"
+        }
+    }
+	}`, dagRunID)
+
+	return []byte(json)
 }
 
-var db *sql.DB
+func postRequest(wg *sync.WaitGroup, i int) {
+	defer wg.Done()
+
+	payload := generatePayload(i)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+	if err != nil {
+		fmt.Printf("Request creation failed: %v\n", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	req.Header.Set("Authorization", "Basic "+auth)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Request %d failed: %v\n", i, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("Request %d: %s\n", i, resp.Status)
+}
 
 func main() {
-	var err error
-	// Connect to MySQL
-	dsn := "root:password123@tcp(localhost:3306)/bridge"
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatalf("Failed to connect to MySQL: %v", err)
+	var wg sync.WaitGroup
+
+	for i := 1; i <= concurrentRequests; i++ {
+		wg.Add(1)
+		go postRequest(&wg, i)
+		// time.Sleep(1 * time.Second) // Optional: throttle to avoid overwhelming the server
 	}
 
-	defer db.Close()
-
-	router := gin.New()
-	router.Use(gin.Logger())
-	allowedOrigins := []string{"*"}
-
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:  allowedOrigins,
-		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:  []string{"Content-Type", "Authorization"},
-		ExposeHeaders: []string{"Content-Length", "Access-Control-Allow-Origin"},
-	}))
-	router.Use(secure.New(secure.Config{
-		SSLRedirect:           false,
-		IsDevelopment:         false,
-		STSSeconds:            315360000,
-		STSIncludeSubdomains:  false,
-		FrameDeny:             false,
-		ContentTypeNosniff:    true,
-		BrowserXssFilter:      true,
-		ContentSecurityPolicy: "default-src 'self'",
-		// IENoOpen:              true,
-		SSLProxyHeaders: map[string]string{"X-Forwarded-Proto": "https"},
-	}))
-
-	router.GET("/tx/status", handleGetTxStatus)
-	router.GET("/tx/pending", handlePendingTxs)
-	router.POST("/tx/add", handleInsertTx)
-	router.POST("/tx/update", handleUpdateTxStatus)
-
-	err = router.Run(":6500")
-	if err != nil {
-		fmt.Printf("Error starting the server: %v", err)
-		os.Exit(1)
-	}
-}
-
-// Fetch all non-TxSuccess rows
-func handlePendingTxs(c *gin.Context) {
-	rows, err := db.Query(`SELECT txID, status FROM bridge_token WHERE status != 'TxSuccess' and status != 'TxFailed'`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	var results []BridgeStatusResponse
-	for rows.Next() {
-		var tx BridgeStatusResponse
-		if err := rows.Scan(&tx.TxID, &tx.Status); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		results = append(results, tx)
-	}
-
-	c.JSON(http.StatusOK, results)
-}
-
-// Insert new transaction
-func handleInsertTx(c *gin.Context) {
-	var req BridgeStatusResponse
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
-		return
-	}
-
-	_, err := db.Exec(
-		`INSERT INTO bridge_token (txID, status, created_at, updated_at) VALUES (?, ?, NOW(), NOW())`,
-		req.TxID, req.Status,
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Insert failed: " + err.Error()})
-		return
-	}
-
-	c.Status(http.StatusCreated)
-}
-
-// Get single transaction status
-func handleGetTxStatus(c *gin.Context) {
-	txID := c.Query("txId")
-	if txID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing txId parameter"})
-		return
-	}
-
-	var status string
-	err := db.QueryRow("SELECT status FROM bridge_token WHERE txID = ?", txID).Scan(&status)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, BridgeStatusResponse{
-		TxID:   txID,
-		Status: status,
-	})
-}
-
-// Update transaction status
-func handleUpdateTxStatus(c *gin.Context) {
-	var req BridgeStatusResponse
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
-		return
-	}
-	t := time.UnixMilli(req.UpdatedAt)
-
-	_, err := db.Exec(`UPDATE bridge_token SET status = ?, updated_at = ? WHERE txID = ?`, req.Status, t, req.TxID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed: " + err.Error()})
-		return
-	}
-
-	c.Status(http.StatusOK)
+	wg.Wait()
 }
