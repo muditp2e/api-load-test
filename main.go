@@ -1,75 +1,82 @@
 package main
 
 import (
-	"bytes"
-	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
-	"sync"
-	"time"
+
+	"github.com/gin-gonic/gin"
 )
-
-const (
-	username           = "admin"
-	password           = "admin"
-	url                = "https://fa68-3-108-214-79.ngrok-free.app/api/v1/dags/gini_notification_final/dagRuns"
-	concurrentRequests = 100
-)
-
-func generatePayload(i int) []byte {
-	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	dagRunID := fmt.Sprintf("manual__%s_%d", timestamp, i)
-
-	json := fmt.Sprintf(`{
-		"dag_run_id": "%s",
-		"conf": {
-        "eventName": "Transfer",
-        "transactionId": "dab0766184b92c6c5de647bfb754ec023ebaffd7564dddd5d2a7f6357a9f7a52",
-        "block_number": 912,
-        "payload": {
-            "from": "e3ac4b65e0bc0bfff3a88209a16cf06918c36daa",
-            "to": "f8763ef1e28e3f36b86b5f7988232f88d28a6fcd",
-            "value": "2000000000000000"
-        }
-    }
-	}`, dagRunID)
-
-	return []byte(json)
-}
-
-func postRequest(wg *sync.WaitGroup, i int) {
-	defer wg.Done()
-
-	payload := generatePayload(i)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
-	if err != nil {
-		fmt.Printf("Request creation failed: %v\n", err)
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-	req.Header.Set("Authorization", "Basic "+auth)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Request %d failed: %v\n", i, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	fmt.Printf("Request %d: %s\n", i, resp.Status)
-}
 
 func main() {
-	var wg sync.WaitGroup
+	r := gin.Default()
 
-	for i := 1; i <= concurrentRequests; i++ {
-		wg.Add(1)
-		go postRequest(&wg, i)
-		// time.Sleep(1 * time.Second) // Optional: throttle to avoid overwhelming the server
-	}
+	r.POST("/contracts/deploy", func(c *gin.Context) {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
 
-	wg.Wait()
+		fmt.Println("Received request body:")
+		fmt.Println(string(bodyBytes))
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":         true,
+			"contractAddress": "0xb4db8fa7ba17ad9b9356a9cf23ccfae749056fe1",
+			"transactionHash": "",
+		})
+	})
+
+	r.POST("/transactions", func(c *gin.Context) {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
+
+		fmt.Println("Received request body:")
+		fmt.Println(string(bodyBytes))
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":     true,
+			"transaction": "0x95f115491b9374fa56cf8a42b76bd5818fcea1df225d981a0a4a26a54184e9d0",
+			"queue_id":    "idemp-1749730421583",
+		})
+	})
+
+	r.POST("/block/monitor", func(c *gin.Context) {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
+
+		fmt.Println("Received request body:")
+		fmt.Println(string(bodyBytes))
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+		})
+	})
+
+	r.POST("/webhooks/oraclePrice", func(c *gin.Context) {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
+
+		fmt.Println("Received request body:")
+		fmt.Println(string(bodyBytes))
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":        true,
+			"subscriptionId": "8b880665-2a78-4137-ad74-f5037f87f136",
+			"status":         "active",
+			"createdAt":      "2025-06-19T05:59:08.863Z",
+		})
+	})
+
+	r.Run(":8086") // Runs on localhost:8080
 }
