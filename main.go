@@ -78,5 +78,61 @@ func main() {
 		})
 	})
 
-	r.Run(":8086") // Runs on localhost:8080
+	r.GET("/getKwalaChains", func(c *gin.Context) {
+		fmt.Println("Received request /getKwalaChains:")
+		c.JSON(http.StatusOK, gin.H{
+			"data": gin.H{
+				"1": gin.H{
+					"oracleAddress":        "0xD31a59c85aE9D8edEFeC411D448f90841571b89c",
+					"tokenName":            "Solana",
+					"oracleChainId":        1,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0xD31a59c85aE9D8edEFeC411D448f90841571b89c",
+					"tokenContractChainId": 2,
+				},
+				"2": gin.H{
+					"oracleAddress":        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+					"tokenName":            "Ethereum",
+					"oracleChainId":        2,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+					"tokenContractChainId": 2,
+				},
+				"3": gin.H{
+					"oracleAddress":        "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+					"tokenName":            "Bitcoin",
+					"oracleChainId":        3,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+					"tokenContractChainId": 2,
+				},
+				"4": gin.H{
+					"oracleAddress":        "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenName":            "BNB",
+					"oracleChainId":        4,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenContractChainId": 2,
+				},
+				"5": gin.H{
+					"oracleAddress":        "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenName":            "AMOY POLYGON",
+					"oracleChainId":        104,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenContractChainId": 80002,
+				},
+				"6": gin.H{
+					"oracleAddress":        "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenName":            "KALP",
+					"oracleChainId":        105,
+					"slippage":             "0.5",
+					"tokenContractAddress": "0xB8c77482e45F1F44dE1745F52C74426C631bDD52",
+					"tokenContractChainId": 80000,
+				},
+			},
+		})
+	})
+
+	r.Run(":8087") // Runs on localhost:8080
 }
