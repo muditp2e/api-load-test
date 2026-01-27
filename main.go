@@ -60,8 +60,8 @@ type entry struct {
 }
 
 func main() {
-	env := flag.String("env", "mainnet", "Environment name (written to CSV and used in output filename)")
-	keysPath := flag.String("keys", "mainnet.txt", "Path to keys file (one key per line)")
+	env := flag.String("env", "testnet", "Environment name (written to CSV and used in output filename)")
+	keysPath := flag.String("keys", "testnet.txt", "Path to keys file (one key per line)")
 	url := flag.String("url", "http://localhost:9000/vault/getVaultKey", "Vault API URL")
 	timeout := flag.Duration("timeout", 10*time.Second, "HTTP timeout per request")
 	flag.Parse()

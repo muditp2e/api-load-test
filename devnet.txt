@@ -14,3 +14,8 @@
 
 
 # kalp chain interface
+
+
+# faucet
+NEW_DEVNET_FAUCET_CERTS
+NEW_DEVNET_FAUCET_ADMIN_CERTS

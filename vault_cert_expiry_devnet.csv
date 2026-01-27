@@ -1,0 +1,3 @@
+id,environment,key,expiry,keyFetchedFromVault
+1,devnet,NEW_DEVNET_FAUCET_CERTS,2026-03-25T06:35:00Z,true
+2,devnet,NEW_DEVNET_FAUCET_ADMIN_CERTS,2026-05-15T12:21:00Z,true

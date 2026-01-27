@@ -1,0 +1,4 @@
+id,environment,key,expiry,keyFetchedFromVault
+1,loadnet,LOADNET_NEW_FAUCET_CERTS_V1,2026-03-25T10:57:00Z,true
+2,loadnet,NEW_LOADNET_FAUCET_TLS_CERT,2040-03-17T11:53:00Z,true
+3,loadnet,NEW_LOADNET_FAUCET_SERVER_CERTS,2026-03-21T14:03:00Z,true
